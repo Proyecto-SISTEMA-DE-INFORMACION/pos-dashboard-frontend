@@ -10,9 +10,19 @@ export const fd=s=>{const[y,m,d]=s.split("-");return `${d} ${MES[+m-1].toLowerCa
 export const norm=s=>String(s??"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
 // Plantilla con el formato del libro de ventas real (hoja LIBROV), el único que acepta el backend.
 export function downloadTemplate(){const ws=XLSX.utils.aoa_to_sheet([["","","","LIBRO DE VENTAS"],["","","DESDE : 01/01/2026  HASTA: 31/01/2026"],[],["FECHA","NRO.BOL","NETO","IVA","TOTAL","FORMA 1","MONTO 1","FORMA 2","MONTO 2","FORMA 3","MONTO 3"],["01/01/2026","000000001",420.17,79.83,500,"EFECTIVO",500,"",0,"",0],["01/01/2026","000000001",2605.04,494.96,3100,"T. DEBITO",3100,"",0,"",0]]);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"LIBROV");XLSX.writeFile(wb,"plantilla_libro_ventas.xlsx")}
-export function downloadCSV(name,rows){const t=rows.map(r=>r.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(",")).join("\n");const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["﻿"+t],{type:"text/csv"}));a.download=name;a.click()}
+export function downloadExcel(name, sheets) {
+  const workbook = XLSX.utils.book_new();
+  for (const [title, rows] of sheets) {
+    const sheet = XLSX.utils.aoa_to_sheet(rows);
+    sheet["!cols"] = rows[0].map(header => ({ wch: Math.max(15, header.length + 3) }));
+    XLSX.utils.book_append_sheet(workbook, sheet, title);
+  }
+  XLSX.writeFile(workbook, name);
+}
 export function DataProvider({children}){
  const [s,setS]=useState({docs:[],uploads:[],facturas:[],chats:[],meta:60000000});const [ready,setReady]=useState(false);const [error,setError]=useState("");
+ const [user,setUser]=useState(null);
+ useEffect(()=>{let active=true;api("/auth/me").then(value=>{if(active)setUser(value)}).catch(()=>{});return ()=>{active=false}},[]);
  const patch=p=>setS(x=>({...x,...p}));
  // Une lo recibido con lo que se agregó mientras cargaba (lo agregado va primero y no se pisa)
  const merge=(local,remote)=>{const ids=new Set(local.map(x=>x.id));return [...local,...remote.filter(x=>!ids.has(x.id))]};
@@ -27,7 +37,7 @@ export function DataProvider({children}){
  // POST /upload: el backend lee el Excel con pandas y omite boletas repetidas
  const importBook=async file=>{const up=await api(`/upload?nombre=${encodeURIComponent(file.name)}`,{method:"POST",body:file,headers:{"Content-Type":"application/octet-stream"}});await loadVentas();return up};
  const removeUpload=async id=>{await api(`/cargas/${id}`,{method:"DELETE"});await loadVentas()};
- const addFactura=async(prov,monto)=>{const f=await api("/facturas",{method:"POST",json:{proveedor:prov,monto}});setS(x=>({...x,facturas:[f,...x.facturas]}));return f};
+ const addFactura=async(id_proveedor,monto)=>{const f=await api("/facturas",{method:"POST",json:{id_proveedor,monto}});setS(x=>({...x,facturas:merge([f],x.facturas)}));return f};
  const setMeta=meta=>{try{localStorage.setItem(META_KEY,String(meta))}catch{}patch({meta})};
  // Asistente: conversaciones guardadas en PostgreSQL
  const openChat=async id=>{const msgs=await api(`/conversaciones/${id}/mensajes`);setS(x=>({...x,chats:x.chats.map(c=>c.id===id?{...c,msgs}:c)}))};
@@ -35,4 +45,5 @@ export function DataProvider({children}){
   setS(x=>{const cur=x.chats.find(c=>c.id===r.conversacion_id);const otros=x.chats.filter(c=>c.id!==r.conversacion_id);
    return {...x,chats:[{id:r.conversacion_id,title:r.titulo,msgs:[...(cur?.msgs||[]),...add]},...otros]}});return r.conversacion_id};
  const deleteChat=async id=>{await api(`/conversaciones/${id}`,{method:"DELETE"});setS(x=>({...x,chats:x.chats.filter(c=>c.id!==id)}))};
- return <C.Provider value={{...s,ready,error,importBook,removeUpload,addFactura,setMeta,openChat,sendChat,deleteChat}}>{children}</C.Provider>}
+ const refreshFacturas=async()=>{const remote=await api("/facturas");setS(x=>({...x,facturas:merge(remote,x.facturas)}))};
+ return <C.Provider value={{...s,ready,error,user,setUser,importBook,removeUpload,addFactura,refreshFacturas,setMeta,openChat,sendChat,deleteChat}}>{children}</C.Provider>}
