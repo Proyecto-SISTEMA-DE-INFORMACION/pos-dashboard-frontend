@@ -38,6 +38,7 @@ export function DataProvider({children}){
  const importBook=async file=>{const up=await api(`/upload?nombre=${encodeURIComponent(file.name)}`,{method:"POST",body:file,headers:{"Content-Type":"application/octet-stream"}});await loadVentas();return up};
  const removeUpload=async id=>{await api(`/cargas/${id}`,{method:"DELETE"});await loadVentas()};
  const addFactura=async(id_proveedor,monto)=>{const f=await api("/facturas",{method:"POST",json:{id_proveedor,monto}});setS(x=>({...x,facturas:merge([f],x.facturas)}));return f};
+ const removeFactura=async id=>{await api(`/facturas/${id}`,{method:"DELETE"});setS(x=>({...x,facturas:x.facturas.filter(f=>f.id!==id)}))};
  const setMeta=meta=>{try{localStorage.setItem(META_KEY,String(meta))}catch{}patch({meta})};
  // Asistente: conversaciones guardadas en PostgreSQL
  const openChat=async id=>{const msgs=await api(`/conversaciones/${id}/mensajes`);setS(x=>({...x,chats:x.chats.map(c=>c.id===id?{...c,msgs}:c)}))};
@@ -46,4 +47,4 @@ export function DataProvider({children}){
    return {...x,chats:[{id:r.conversacion_id,title:r.titulo,msgs:[...(cur?.msgs||[]),...add]},...otros]}});return r.conversacion_id};
  const deleteChat=async id=>{await api(`/conversaciones/${id}`,{method:"DELETE"});setS(x=>({...x,chats:x.chats.filter(c=>c.id!==id)}))};
  const refreshFacturas=async()=>{const remote=await api("/facturas");setS(x=>({...x,facturas:merge(remote,x.facturas)}))};
- return <C.Provider value={{...s,ready,error,user,setUser,importBook,removeUpload,addFactura,refreshFacturas,setMeta,openChat,sendChat,deleteChat}}>{children}</C.Provider>}
+ return <C.Provider value={{...s,ready,error,user,setUser,importBook,removeUpload,addFactura,removeFactura,refreshFacturas,setMeta,openChat,sendChat,deleteChat}}>{children}</C.Provider>}
