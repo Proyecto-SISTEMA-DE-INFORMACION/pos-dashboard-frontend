@@ -20,8 +20,14 @@ const previousMonth = s => {
   return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
 };
 
-function summarize(docs) {
-  const valid = docs.filter(d => String(d.estado || "").trim().toLowerCase() === "vigente" && /^\d{4}-\d{2}-\d{2}$/.test(String(d.fecha || "")));
+const isValid = d => String(d.estado || "").trim().toLowerCase() === "vigente" && /^\d{4}-\d{2}-\d{2}$/.test(String(d.fecha || ""));
+const shiftMonths = (ym, n) => {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1 - n, 1)).toISOString().slice(0, 7);
+};
+
+function summarize(docs, all = docs) {
+  const valid = docs.filter(isValid);
   const daily = new Map(), monthly = new Map();
   let total = 0, iva = 0;
   for (const doc of valid) {
@@ -36,8 +42,9 @@ function summarize(docs) {
   const days = [...daily.values()].sort((a, b) => a.date.localeCompare(b.date));
   const periods = [...monthly.values()].sort((a, b) => a.date.localeCompare(b.date));
   const latest = periods.at(-1);
-  const prior = latest ? monthly.get(previousMonth(latest.date)) : null;
-  return { valid, total, iva, days, periods, latest, variation: prior && prior.total !== 0 ? (latest.total / prior.total - 1) * 100 : null };
+  const prevKey = latest ? previousMonth(latest.date) : "";
+  const prior = latest ? all.filter(d => isValid(d) && d.fecha.slice(0, 7) === prevKey).reduce((sum, d) => sum + money(d.total), 0) : 0;
+  return { valid, total, iva, days, periods, latest, variation: prior !== 0 ? (latest.total / prior - 1) * 100 : null };
 }
 
 function Panel({ children, className = "" }) {
@@ -54,11 +61,31 @@ function Metric({ title, value, description, primary = false }) {
 
 export default function Resumen() {
   const { docs, ready, error, meta, setMeta } = useData();
-  const data = useMemo(() => summarize(docs), [docs]);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [validation, setValidation] = useState("");
-  const progress = meta > 0 ? (data.latest?.total || 0) / meta * 100 : 0;
+  const lastDate = useMemo(() => docs.reduce((max, d) => isValid(d) && d.fecha > max ? d.fecha : max, ""), [docs]);
+  const [custom, setCustom] = useState(null);
+  const [calOpen, setCalOpen] = useState(false);
+  const [calDraft, setCalDraft] = useState({ desde: "", hasta: "" });
+  const [calError, setCalError] = useState("");
+  const range = custom || (lastDate
+    ? { desde: `${shiftMonths(lastDate.slice(0, 7), 1)}-01`, hasta: lastDate }
+    : { desde: "", hasta: "" });
+  const filtered = useMemo(
+    () => range.desde ? docs.filter(d => d.fecha >= range.desde && d.fecha <= range.hasta) : docs,
+    [docs, range.desde, range.hasta]);
+  const data = useMemo(() => summarize(filtered, docs), [filtered, docs]);
+  const metaMonth = range.hasta ? range.hasta.slice(0, 7) : "";
+  const metaTotal = useMemo(() => docs
+    .filter(d => isValid(d) && d.fecha.slice(0, 7) === metaMonth && d.fecha <= range.hasta)
+    .reduce((sum, d) => sum + money(d.total), 0), [docs, metaMonth, range.hasta]);
+  const progress = meta > 0 ? metaTotal / meta * 100 : 0;
+  const applyRange = () => {
+    if (!calDraft.desde || !calDraft.hasta) { setCalError("Selecciona ambas fechas."); return; }
+    if (calDraft.desde > calDraft.hasta) { setCalError("La fecha inicial no puede ser posterior a la final."); return; }
+    setCustom(calDraft); setCalOpen(false); setCalError("");
+  };
   const saveGoal = () => {
     const value = Number(draft);
     if (!Number.isSafeInteger(value) || value <= 0) { setValidation("Ingresa un monto entero mayor a cero."); return; }
@@ -73,12 +100,27 @@ export default function Resumen() {
     <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-slate-950 px-5 py-6 text-white sm:px-7">
       <div>
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Resumen financiero</h1>
-        <p className="mt-2 flex items-center gap-2 text-sm text-slate-300">
+        <button type="button" onClick={() => { setCalDraft(range); setCalError(""); setCalOpen(o => !o); }}
+          className="-ml-2 mt-2 inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-slate-300 hover:bg-white/10">
           <CalendarDays size={16} aria-hidden="true" />
-          {!ready || error ? "Ventas registradas" : data.days.length
-            ? `${fullDate(data.days[0].date)} – ${fullDate(data.days.at(-1).date)}`
-            : "Sin período disponible"}
-        </p>
+          {!ready || error ? "Ventas registradas" : range.desde
+            ? `${fullDate(range.desde)} – ${fullDate(range.hasta)}` : "Sin período disponible"}
+          <Pencil size={12} aria-hidden="true" />
+        </button>
+        {calOpen && <div className="mt-3 flex flex-wrap items-end gap-3 rounded-xl bg-white p-3 text-slate-950">
+          <label className="text-xs font-medium">Desde
+            <input type="date" value={calDraft.desde} onChange={e => setCalDraft(c => ({ ...c, desde: e.target.value }))}
+              className="mt-1 block rounded-lg border border-slate-300 px-2 py-1.5 text-sm" />
+          </label>
+          <label className="text-xs font-medium">Hasta
+            <input type="date" value={calDraft.hasta} onChange={e => setCalDraft(c => ({ ...c, hasta: e.target.value }))}
+              className="mt-1 block rounded-lg border border-slate-300 px-2 py-1.5 text-sm" />
+          </label>
+          <button type="button" onClick={applyRange} className="rounded-lg bg-brand px-3 py-2 text-xs font-semibold text-white">Aplicar</button>
+          <button type="button" onClick={() => { setCustom(null); setCalOpen(false); setCalError(""); }}
+            className="rounded-lg px-3 py-2 text-xs text-slate-700 hover:bg-slate-100">Últimos 2 meses</button>
+          {calError && <p role="alert" className="w-full text-xs text-red-700">{calError}</p>}
+        </div>}
       </div>
       <button onClick={exportData} disabled={!ready || !!error || !data.valid.length}
         className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-blue-50 disabled:opacity-50">
@@ -117,7 +159,7 @@ export default function Resumen() {
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
                 <h2 className="font-semibold text-slate-950">Meta de ingresos</h2>
-                <p className="mt-1 text-xs text-slate-600">{data.latest ? `${months[Number(data.latest.date.slice(5)) - 1]} ${data.latest.date.slice(0, 4)}` : "Sin mes registrado"}</p>
+                <p className="mt-1 text-xs text-slate-600">{metaMonth ? `${months[Number(metaMonth.slice(5)) - 1]} ${metaMonth.slice(0, 4)}` : "Sin mes registrado"}</p>
               </div>
               <button className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm font-semibold text-brand hover:bg-blue-50"
                 onClick={() => { setDraft(String(meta)); setValidation(""); setEditing(true); }}>
@@ -126,7 +168,7 @@ export default function Resumen() {
             </div>
 
             <div className="mt-5 rounded-xl bg-slate-50 p-4">
-              <p className="break-words text-2xl font-bold tracking-tight text-slate-950 tabular-nums">{clp(data.latest?.total || 0)}</p>
+              <p className="break-words text-2xl font-bold tracking-tight text-slate-950 tabular-nums">{clp(metaTotal)}</p>
               <p className="mt-1 text-sm text-slate-600">de {clp(meta)}</p>
               <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-200" aria-hidden="true">
                 <div className="h-full rounded-full bg-brand" style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} />

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import ChartExport from "@/components/ChartExport";
 import ProviderAdmin from "@/components/ProviderAdmin";
-import { Card, Title } from "@/components/ui";
+import { Btn, Card, Title } from "@/components/ui";
 import { api } from "@/lib/api";
 import { clp, useData } from "@/lib/store";
 
@@ -26,12 +26,12 @@ function summarize(facturas, docs) {
   const credit = credito(compras);
 
   return {
-    debito, credit, saldo: debito - credit,
+    debito, credit, saldo: credit - debito,
     groups: [
       { title: "IVA de ventas y compras registradas (CLP)", unit: "CLP", rows: [
         { label: "IVA débito · ventas vigentes", value: debito },
         { label: "IVA crédito · compras", value: credit },
-        { label: "Saldo · débito menos crédito", value: debito - credit },
+        { label: "Saldo · crédito menos débito", value: credit - debito },
       ] },
       { title: "Facturas por proveedor", rows: rows.map(row => ({ label: row.label, value: row.count })) },
       { title: "Compras brutas por proveedor (CLP)", unit: "CLP", rows: rows.map(row => ({ label: row.label, value: row.amount })) },
@@ -41,7 +41,7 @@ function summarize(facturas, docs) {
 }
 
 export default function Facturas() {
-  const { facturas, docs, ready, error, user, addFactura, refreshFacturas } = useData();
+  const { facturas, docs, ready, error, user, addFactura, removeFactura, refreshFacturas } = useData();
   const { debito, credit, saldo, groups } = useMemo(() => summarize(facturas, docs), [facturas, docs]);
   const [providerId, setProviderId] = useState("");
   const [monto, setMonto] = useState("");
@@ -50,6 +50,7 @@ export default function Facturas() {
   const [providers, setProviders] = useState(null);
   const [providerError, setProviderError] = useState("");
   const isAdmin = user?.tipo === "ADMINISTRADOR";
+  const [delErr, setDelErr] = useState("");
   const selectedProvider = providers?.find(provider => String(provider.id_proveedor) === providerId);
 
   useEffect(() => {
@@ -99,6 +100,12 @@ export default function Facturas() {
       }
     }
   }
+async function removeRow(row) {
+  if (!window.confirm(`¿Eliminar la factura de «${row.prov}» por ${clp(row.monto)}?`)) return;
+  setDelErr("");
+  try { await removeFactura(row.id); }
+  catch (failure) { setDelErr(failure.message); }
+}
 
   async function exportExcel() {
     const blob = await api("/facturas/exportacion", { download: true });
@@ -150,7 +157,7 @@ export default function Facturas() {
             {[
               ["IVA débito · ventas", debito],
               ["IVA crédito estimado · compras", credit],
-              ["Saldo estimado · débito menos crédito", saldo],
+              ["Saldo estimado · crédito menos débito", saldo],
             ].map(([label, value]) => <div key={label} className="rounded-lg bg-slate-50 p-3">
               <dt className="text-xs text-slate-600">{label}</dt>
               <dd className="mt-1 text-lg font-bold">{clp(value)}</dd>
@@ -166,15 +173,17 @@ export default function Facturas() {
 
     <Card>
       <h2 className="mb-2 text-sm font-semibold">Historial de facturas</h2>
+      {delErr && <p role="alert" className="mb-2 text-xs text-red-700">{delErr}</p>}
       {!facturas.length ? <p className="py-8 text-center text-sm text-slate-600">{ready ? "No hay facturas disponibles." : "Cargando facturas…"}</p> :
         <table className="w-full text-left text-xs">
           <thead className="bg-slate-50 text-slate-600">
-            <tr><th className="p-2">Proveedor</th><th className="p-2">Fecha de registro</th><th className="p-2 text-right">Monto bruto</th><th className="p-2 text-right">IVA crédito estimado</th></tr>
+            <tr><th className="p-2">Proveedor</th><th className="p-2">Fecha de registro</th><th className="p-2 text-right">Monto bruto</th><th className="p-2 text-right">IVA crédito estimado</th>{isAdmin && <th className="p-2"><span className="sr-only">Acciones</span></th>}</tr>
           </thead>
           <tbody>{facturas.map(row => <tr key={row.id} className="border-t">
-            <td className="p-2">{row.prov}</td><td className="p-2 text-slate-600">{row.fecha}</td>
-            <td className="p-2 text-right font-semibold">{clp(row.monto)}</td><td className="p-2 text-right">{clp(credito(row.monto))}</td>
-          </tr>)}</tbody>
+  <td className="p-2">{row.prov}</td><td className="p-2 text-slate-600">{row.fecha}</td>
+  <td className="p-2 text-right font-semibold">{clp(row.monto)}</td><td className="p-2 text-right">{clp(credito(row.monto))}</td>
+  {isAdmin && <td className="p-2 text-right"><Btn onClick={() => removeRow(row)} aria-label={`Eliminar factura #${row.id}`}>Eliminar</Btn></td>}
+</tr>)}</tbody>
         </table>}
     </Card>
   </div>;
