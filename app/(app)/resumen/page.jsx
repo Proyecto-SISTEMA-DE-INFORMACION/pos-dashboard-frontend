@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { CalendarDays, Download, Pencil } from "lucide-react";
 import { useData, clp, downloadExcel } from "@/lib/store";
+import { TarjetaMeta, HistorialMetas, MESES_LARGOS } from "@/components/MetaMensual";
 import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 
 const months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -21,12 +22,14 @@ const previousMonth = s => {
 };
 
 const isValid = d => String(d.estado || "").trim().toLowerCase() === "vigente" && /^\d{4}-\d{2}-\d{2}$/.test(String(d.fecha || ""));
+const daysIn = ym => { const [y, m] = ym.split("-").map(Number); return new Date(Date.UTC(y, m, 0)).getUTCDate(); };
+const pad = n => String(n).padStart(2, "0");
 const shiftMonths = (ym, n) => {
   const [y, m] = ym.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1 - n, 1)).toISOString().slice(0, 7);
 };
 
-function summarize(docs, all = docs) {
+function summarize(docs, all = docs, desde = "") {
   const valid = docs.filter(isValid);
   const daily = new Map(), monthly = new Map();
   let total = 0, iva = 0;
@@ -42,9 +45,22 @@ function summarize(docs, all = docs) {
   const days = [...daily.values()].sort((a, b) => a.date.localeCompare(b.date));
   const periods = [...monthly.values()].sort((a, b) => a.date.localeCompare(b.date));
   const latest = periods.at(-1);
-  const prevKey = latest ? previousMonth(latest.date) : "";
-  const prior = latest ? all.filter(d => isValid(d) && d.fecha.slice(0, 7) === prevKey).reduce((sum, d) => sum + money(d.total), 0) : 0;
-  return { valid, total, iva, days, periods, latest, variation: prior !== 0 ? (latest.total / prior - 1) * 100 : null };
+  // El último mes del período se compara con los mismos días del mes anterior
+  // (ej.: 1 al 15 de marzo contra 1 al 15 de febrero), no con el mes anterior completo.
+  let variation = null, comparison = "";
+  if (latest) {
+    const monthStart = `${latest.date}-01`;
+    const firstDay = desde > monthStart ? Number(desde.slice(8, 10)) : 1;
+    const lastDay = Number(days.at(-1).date.slice(8, 10));
+    const prevKey = previousMonth(latest.date), prevLength = daysIn(prevKey);
+    const from = Math.min(firstDay, prevLength), to = Math.min(lastDay, prevLength);
+    const prior = all.filter(d => isValid(d) && d.fecha >= `${prevKey}-${pad(from)}` && d.fecha <= `${prevKey}-${pad(to)}`)
+      .reduce((sum, d) => sum + money(d.total), 0);
+    const monthName = MESES_LARGOS[Number(prevKey.slice(5, 7)) - 1].toLowerCase();
+    variation = prior !== 0 ? (latest.total / prior - 1) * 100 : null;
+    comparison = from === to ? `el ${from} de ${monthName}` : `${from} al ${to} de ${monthName}`;
+  }
+  return { valid, total, iva, days, periods, latest, variation, comparison };
 }
 
 function Panel({ children, className = "" }) {
@@ -60,10 +76,10 @@ function Metric({ title, value, description, primary = false }) {
 }
 
 export default function Resumen() {
-  const { docs, ready, error, meta, setMeta } = useData();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [validation, setValidation] = useState("");
+  const { docs, ready, error, user, metas, metasReady, metasError, saveMeta, removeMeta } = useData();
+  const isAdmin = user?.tipo === "ADMINISTRADOR";
+  const [chosenMonth, setChosenMonth] = useState(null);
+  const [goalEditing, setGoalEditing] = useState(false);
   const lastDate = useMemo(() => docs.reduce((max, d) => isValid(d) && d.fecha > max ? d.fecha : max, ""), [docs]);
   const [custom, setCustom] = useState(null);
   const [calOpen, setCalOpen] = useState(false);
@@ -75,21 +91,22 @@ export default function Resumen() {
   const filtered = useMemo(
     () => range.desde ? docs.filter(d => d.fecha >= range.desde && d.fecha <= range.hasta) : docs,
     [docs, range.desde, range.hasta]);
-  const data = useMemo(() => summarize(filtered, docs), [filtered, docs]);
-  const metaMonth = range.hasta ? range.hasta.slice(0, 7) : "";
-  const metaTotal = useMemo(() => docs
-    .filter(d => isValid(d) && d.fecha.slice(0, 7) === metaMonth && d.fecha <= range.hasta)
-    .reduce((sum, d) => sum + money(d.total), 0), [docs, metaMonth, range.hasta]);
-  const progress = meta > 0 ? metaTotal / meta * 100 : 0;
+  const data = useMemo(() => summarize(filtered, docs, range.desde), [filtered, docs, range.desde]);
+  // Metas: no dependen del período; por defecto se muestra el mes de la última venta cargada
+  const salesByMonth = useMemo(() => {
+    const totals = new Map();
+    for (const d of docs) if (isValid(d)) totals.set(d.fecha.slice(0, 7), (totals.get(d.fecha.slice(0, 7)) || 0) + money(d.total));
+    return totals;
+  }, [docs]);
+  const goalMonth = chosenMonth || (lastDate ? lastDate.slice(0, 7) : new Date().toISOString().slice(0, 7));
+  const editGoal = month => {
+    setChosenMonth(month); setGoalEditing(true);
+    document.getElementById("meta-ingresos")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
   const applyRange = () => {
     if (!calDraft.desde || !calDraft.hasta) { setCalError("Selecciona ambas fechas."); return; }
     if (calDraft.desde > calDraft.hasta) { setCalError("La fecha inicial no puede ser posterior a la final."); return; }
     setCustom(calDraft); setCalOpen(false); setCalError("");
-  };
-  const saveGoal = () => {
-    const value = Number(draft);
-    if (!Number.isSafeInteger(value) || value <= 0) { setValidation("Ingresa un monto entero mayor a cero."); return; }
-    setMeta(value); setEditing(false); setValidation("");
   };
   const exportData = () => downloadExcel("resumen-financiero.xlsx", [
     ["Ingresos diarios", [["Fecha", "Ingresos CLP"], ...data.days.map(d => [d.date, d.total])]],
@@ -132,7 +149,7 @@ export default function Resumen() {
       : error ? <Panel><p className="text-sm text-red-700">No fue posible completar la carga de datos.</p></Panel>
       : <>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric primary title="Ingresos totales" value={clp(data.total)} description={data.variation === null ? "Sin comparación mensual disponible" : `${number.format(Number(data.variation.toFixed(1)))}% vs. mes anterior`} />
+          <Metric primary title="Ingresos totales" value={clp(data.total)} description={data.variation === null ? "Sin comparación mensual disponible" : `${number.format(Number(data.variation.toFixed(1)))}% vs. ${data.comparison}`} />
           <Metric title="Ticket promedio" value={clp(data.valid.length ? data.total / data.valid.length : 0)} description="CLP por transacción" />
           <Metric title="Transacciones" value={number.format(data.valid.length)} description="Operaciones vigentes del período" />
           <Metric title="IVA acumulado" value={clp(data.iva)} description="IVA registrado en las ventas" />
@@ -155,41 +172,9 @@ export default function Resumen() {
             </div> : <p className="grid h-64 place-items-center text-center text-sm text-slate-600">No hay ventas vigentes para graficar.</p>}
           </Panel>
 
-          <Panel>
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <h2 className="font-semibold text-slate-950">Meta de ingresos</h2>
-                <p className="mt-1 text-xs text-slate-600">{metaMonth ? `${months[Number(metaMonth.slice(5)) - 1]} ${metaMonth.slice(0, 4)}` : "Sin mes registrado"}</p>
-              </div>
-              <button className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm font-semibold text-brand hover:bg-blue-50"
-                onClick={() => { setDraft(String(meta)); setValidation(""); setEditing(true); }}>
-                <Pencil size={14} aria-hidden="true" /> Editar
-              </button>
-            </div>
-
-            <div className="mt-5 rounded-xl bg-slate-50 p-4">
-              <p className="break-words text-2xl font-bold tracking-tight text-slate-950 tabular-nums">{clp(metaTotal)}</p>
-              <p className="mt-1 text-sm text-slate-600">de {clp(meta)}</p>
-              <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-200" aria-hidden="true">
-                <div className="h-full rounded-full bg-brand" style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} />
-              </div>
-              <p className="mt-2 text-sm font-semibold text-brand">{number.format(Number(progress.toFixed(1)))}% alcanzado</p>
-            </div>
-
-            {editing && <form className="mt-4" onSubmit={event => { event.preventDefault(); saveGoal(); }} noValidate>
-              <label className="block text-sm font-medium">
-                Meta mensual (CLP)
-                <input type="number" min="1" step="1" autoFocus value={draft} onChange={event => setDraft(event.target.value)}
-                  aria-invalid={!!validation} aria-describedby={validation ? "meta-error" : undefined}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" />
-              </label>
-              {validation && <p id="meta-error" role="alert" className="mt-1 text-xs text-red-700">{validation}</p>}
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button type="submit" className="rounded-lg bg-brand px-3 py-2 text-sm font-semibold text-white">Guardar</button>
-                <button type="button" onClick={() => setEditing(false)} className="rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">Cancelar</button>
-              </div>
-            </form>}
-          </Panel>
+          <TarjetaMeta mes={goalMonth} setMes={setChosenMonth} editando={goalEditing} setEditando={setGoalEditing}
+            metas={metas} metasReady={metasReady} metasError={metasError} ventasPorMes={salesByMonth}
+            ultimaVenta={lastDate} esAdmin={isAdmin} saveMeta={saveMeta} />
 
           <Panel className="xl:col-span-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -215,6 +200,9 @@ export default function Resumen() {
               </ResponsiveContainer>
             </div> : <p className="grid h-64 place-items-center text-center text-sm text-slate-600">No hay datos mensuales.</p>}
           </Panel>
+
+          <HistorialMetas className="xl:col-span-3" metas={metas} metasReady={metasReady} ventasPorMes={salesByMonth}
+            ultimaVenta={lastDate} esAdmin={isAdmin} onEditar={editGoal} removeMeta={removeMeta} />
         </div>
       </>}
   </div>;

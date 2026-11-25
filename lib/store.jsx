@@ -3,6 +3,7 @@ import {createContext,useCallback,useContext,useEffect,useRef,useState} from "re
 import * as XLSX from "xlsx";
 import {api} from "./api";
 const C=createContext(null);export const useData=()=>useContext(C);
+// La meta antigua vivía en el navegador; ahora las metas por mes están en PostgreSQL
 const META_KEY="pabst-bi-meta";
 export const MES=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 export const clp=v=>"$"+Math.round(v||0).toLocaleString("es-CL");
@@ -20,7 +21,7 @@ export function downloadExcel(name, sheets) {
   XLSX.writeFile(workbook, name);
 }
 export function DataProvider({children}){
- const [s,setS]=useState({docs:[],uploads:[],facturas:[],chats:[],meta:60000000});const [ready,setReady]=useState(false);const [error,setError]=useState("");
+ const [s,setS]=useState({docs:[],uploads:[],facturas:[],chats:[],metas:[],metasReady:false});const [ready,setReady]=useState(false);const [error,setError]=useState("");const [metasError,setMetasError]=useState("");
  const [user,setUser]=useState(null);
  useEffect(()=>{let active=true;api("/auth/me").then(value=>{if(active)setUser(value)}).catch(()=>{});return ()=>{active=false}},[]);
  const patch=p=>setS(x=>({...x,...p}));
@@ -29,7 +30,9 @@ export function DataProvider({children}){
  // Solo se aplica la respuesta de ventas más reciente (una carga inicial lenta no pisa una recarga posterior)
  const seq=useRef(0);
  const loadVentas=useCallback(async()=>{const n=++seq.current;const [docs,uploads]=await Promise.all([api("/documentos"),api("/cargas")]);if(n===seq.current)patch({docs,uploads})},[]);
- useEffect(()=>{let meta=60000000;try{const m=+localStorage.getItem(META_KEY);if(m>0)meta=m}catch{}patch({meta});
+ useEffect(()=>{try{localStorage.removeItem(META_KEY)}catch{}
+  // Las metas se cargan aparte: si fallan, el resto del dashboard sigue funcionando
+  api("/metas").then(metas=>patch({metas,metasReady:true})).catch(e=>{setMetasError(e.message);patch({metasReady:true})});
   Promise.all([loadVentas(),
    api("/facturas").then(f=>setS(x=>({...x,facturas:merge(x.facturas,f)}))),
    api("/conversaciones").then(c=>setS(x=>({...x,chats:merge(x.chats,c)})))])
@@ -39,7 +42,10 @@ export function DataProvider({children}){
  const removeUpload=async id=>{await api(`/cargas/${id}`,{method:"DELETE"});await loadVentas()};
  const addFactura=async(id_proveedor,monto)=>{const f=await api("/facturas",{method:"POST",json:{id_proveedor,monto}});setS(x=>({...x,facturas:merge([f],x.facturas)}));return f};
  const removeFactura=async id=>{await api(`/facturas/${id}`,{method:"DELETE"});setS(x=>({...x,facturas:x.facturas.filter(f=>f.id!==id)}))};
- const setMeta=meta=>{try{localStorage.setItem(META_KEY,String(meta))}catch{}patch({meta})};
+ // Metas por mes ("2026-03"): solo un administrador puede guardarlas o borrarlas
+ const sortMetas=list=>[...list].sort((a,b)=>b.mes.localeCompare(a.mes));
+ const saveMeta=async(mes,monto)=>{const m=await api(`/metas/${mes}`,{method:"PUT",json:{monto}});setS(x=>({...x,metas:sortMetas([m,...x.metas.filter(y=>y.mes!==mes)])}));setMetasError("");return m};
+ const removeMeta=async mes=>{await api(`/metas/${mes}`,{method:"DELETE"});setS(x=>({...x,metas:x.metas.filter(y=>y.mes!==mes)}))};
  // Asistente: conversaciones guardadas en PostgreSQL
  const openChat=async id=>{const msgs=await api(`/conversaciones/${id}/mensajes`);setS(x=>({...x,chats:x.chats.map(c=>c.id===id?{...c,msgs}:c)}))};
  const sendChat=async(id,t)=>{const r=await api("/chat",{method:"POST",json:{conversacion_id:id?+id:null,mensaje:t}});const add=[{r:"u",t},{r:"ai",t:r.respuesta}];
@@ -47,4 +53,4 @@ export function DataProvider({children}){
    return {...x,chats:[{id:r.conversacion_id,title:r.titulo,msgs:[...(cur?.msgs||[]),...add]},...otros]}});return r.conversacion_id};
  const deleteChat=async id=>{await api(`/conversaciones/${id}`,{method:"DELETE"});setS(x=>({...x,chats:x.chats.filter(c=>c.id!==id)}))};
  const refreshFacturas=async()=>{const remote=await api("/facturas");setS(x=>({...x,facturas:merge(remote,x.facturas)}))};
- return <C.Provider value={{...s,ready,error,user,setUser,importBook,removeUpload,addFactura,removeFactura,refreshFacturas,setMeta,openChat,sendChat,deleteChat}}>{children}</C.Provider>}
+ return <C.Provider value={{...s,ready,error,user,setUser,importBook,removeUpload,addFactura,removeFactura,refreshFacturas,metasError,saveMeta,removeMeta,openChat,sendChat,deleteChat}}>{children}</C.Provider>}
