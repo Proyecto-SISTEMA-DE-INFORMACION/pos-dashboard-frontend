@@ -1,1 +1,84 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240"><circle cx="120" cy="120" r="112" fill="#0b1220" stroke="#10b981" stroke-width="4"/><circle cx="120" cy="120" r="98" fill="none" stroke="#10b981" stroke-width="1.5"/><text x="120" y="136" font-family="Arial Black,Arial,sans-serif" font-size="46" font-weight="900" text-anchor="middle" fill="#3b82f6">EL FARO</text><text x="120" y="162" font-family="Arial,sans-serif" font-size="12" letter-spacing="3" text-anchor="middle" fill="#10b981">BEACHSIDE</text><text x="120" y="180" font-family="Arial,sans-serif" font-size="10" letter-spacing="3" text-anchor="middle" fill="#10b981">LIQUOR STORE</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="500" height="500">
+  <defs>
+    
+    <style>
+      700&amp;display=swap');
+      .title-font {
+        font-family: 'Oswald', 'Impact', 'Arial Narrow', sans-serif;
+        font-weight: 700;
+      }
+      .sub-font {
+        font-family: 'Oswald', 'Arial Narrow', 'Helvetica Neue', sans-serif;
+        font-weight: 600;
+      }
+    </style>
+
+    
+    <linearGradient id="borderGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#646e7d" />
+      <stop offset="45%" stop-color="#2c3852" />
+      <stop offset="100%" stop-color="#101829" />
+    </linearGradient>
+
+    
+    <radialGradient id="bgGrad" cx="50%" cy="45%" r="55%">
+      <stop offset="0%" stop-color="#182644" />
+      <stop offset="70%" stop-color="#111b33" />
+      <stop offset="100%" stop-color="#0b1222" />
+    </radialGradient>
+
+    
+    <linearGradient id="textBlueGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6" />
+      <stop offset="55%" stop-color="#2563eb" />
+      <stop offset="100%" stop-color="#1d4ed8" />
+    </linearGradient>
+
+    
+    <filter id="textShadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#000000" flood-opacity="0.65" />
+    </filter>
+
+    
+    <mask id="ringCutout">
+      <rect width="500" height="500" fill="white" />
+      <rect x="0" y="170" width="500" height="120" fill="black" />
+    </mask>
+
+    
+    <path id="topArc" d="M 122,250 A 128,128 0 1,1 378,250" fill="none" />
+    <path id="bottomArc" d="M 104,250 A 146,146 0 1,0 396,250" fill="none" />
+  </defs>
+
+  
+  <circle cx="250" cy="250" r="245" fill="url(#borderGrad)" />
+  <circle cx="250" cy="250" r="234" fill="url(#bgGrad)" />
+
+  
+  <g mask="url(#ringCutout)" fill="none" stroke="#20a47c">
+    <circle cx="250" cy="250" r="182" stroke-width="4.5" />
+    <circle cx="250" cy="250" r="165" stroke-width="8.5" />
+  </g>
+
+  
+  <g stroke="#20a47c" stroke-width="3" stroke-linecap="butt">
+    <line x1="98" y1="329" x2="156" y2="329" />
+    <line x1="344" y1="329" x2="402" y2="329" />
+  </g>
+
+  
+  <text class="sub-font" fill="#ffffff" font-size="24" letter-spacing="5">
+    <textPath href="#topArc" startOffset="50%" text-anchor="middle">• LENS &amp; LASE •</textPath>
+  </text>
+
+  
+  <text x="250" y="274" text-anchor="middle" class="title-font" font-size="122" letter-spacing="2" fill="url(#textBlueGrad)" stroke="#ffffff" stroke-width="11" stroke-linejoin="round" filter="url(#textShadow)">EL FARO</text>
+
+  
+  <text x="250" y="340" text-anchor="middle" class="sub-font" fill="#20a47c" font-size="31" letter-spacing="4">BEACHSIDE</text>
+
+  
+  <text class="sub-font" fill="#ffffff" font-size="25" letter-spacing="6">
+    <textPath href="#bottomArc" startOffset="50%" text-anchor="middle">LIQUOR STORE</textPath>
+  </text>
+</svg>
